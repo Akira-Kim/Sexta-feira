@@ -1,0 +1,26 @@
+# Segredos
+api_key.txt
+api_key_*.txt
+.env
+*.pem
+
+# Dados locais / íntimos
+dados/**/*.db
+dados/historico/**
+dados/raciocinios/**
+dados/seguranca/incidentes/**
+dados/backups/**
+!dados/**/.gitkeep
+!dados/README.md
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
