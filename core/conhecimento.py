@@ -99,11 +99,14 @@ def registrar_uso(pergunta, resposta):
     except Exception:
         pass
 
-
-def salva_sugestao(pergunta, resposta):
+def salva_sugestao(pergunta, resposta, tipo=None):
     global BASE
+    from core.tipos_conhecimento import inferir_tipo, normalizar_tipo
+
     pergunta = normalizar(pergunta)
     resposta = resposta.strip()
+    tipo = normalizar_tipo(tipo or inferir_tipo(pergunta, resposta))
+
     if pergunta not in BASE:
         BASE[pergunta] = []
     BASE[pergunta].append(resposta)
@@ -112,14 +115,13 @@ def salva_sugestao(pergunta, resposta):
     cursor = conexao.cursor()
     cursor.execute(
         """
-        INSERT INTO conhecimento (pergunta, resposta, vezes_usada)
-        VALUES (?, ?, 0)
+        INSERT INTO conhecimento (pergunta, resposta, vezes_usada, tipo)
+        VALUES (?, ?, 0, ?)
         """,
-        (pergunta, resposta),
+        (pergunta, resposta, tipo),
     )
     conexao.commit()
     conexao.close()
-
 
 def busca_por_similaridade(texto):
     global _ultima_chave_match

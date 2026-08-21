@@ -1,24 +1,37 @@
 # ============================================================
-#  Rastreio de origem (mínimo v01 — expande no P1)
+#  Rastreio de origem — P1.3
 # ============================================================
 
-def novo_rastreio(fonte, **kwargs):
-    dados = {"fonte": fonte}
-    dados.update(kwargs)
-    return dados
+def novo(fonte, chave=None, score=None, modelo=None):
+    """Cria um registro de origem da resposta."""
+    return {
+        "fonte": fonte,
+        "chave": chave,
+        "score": score,
+        "modelo": modelo,
+    }
 
 
-def formatar(rastreio):
-    if not rastreio:
-        return ""
-    fonte = rastreio.get("fonte", "?")
-    extra = []
-    if rastreio.get("chave"):
-        extra.append(f"chave={rastreio['chave']}")
-    if rastreio.get("score") is not None:
-        extra.append(f"score={rastreio['score']}")
-    if rastreio.get("modelo"):
-        extra.append(f"modelo={rastreio['modelo']}")
-    if extra:
-        return f"[{fonte} | {', '.join(extra)}]"
-    return f"[{fonte}]"
+def formatar(r):
+    """Texto curto para debug no console."""
+    if not r:
+        return "[rastreio: vazio]"
+    partes = [f"fonte={r.get('fonte')}"]
+    if r.get("chave"):
+        partes.append(f"chave={r['chave']}")
+    if r.get("score") is not None:
+        partes.append(f"score={r['score']:.2f}")
+    if r.get("modelo"):
+        partes.append(f"modelo={r['modelo']}")
+    return "[rastreio] " + " | ".join(partes)
+
+
+# Último rastreio da conversa (a GUI ainda não usa; o console pode mostrar)
+ultimo = None
+
+
+def registrar(r):
+    """Guarda o último rastreio em memória."""
+    global ultimo
+    ultimo = r
+    return r

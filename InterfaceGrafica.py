@@ -41,6 +41,23 @@ def contem_palavra_proibida(texto):
     return False
 
 
+def _usuario_disse_nao_sei(texto):
+    try:
+        from core.aprender import usuario_disse_nao_sei
+        return usuario_disse_nao_sei(texto)
+    except ImportError:
+        p = pc.normalizar(texto)
+        if not p:
+            return True
+        if p in ("nao sei", "sei la", "ignora", "passa", "skip", "tanto faz"):
+            return True
+        if p.startswith("nao sei") or p.startswith("sei la"):
+            return True
+        if "nao faco ideia" in p or "nao grava" in p or "nao salva" in p:
+            return True
+        return False
+
+
 def enviar(event=None):
     global entrada_sugestao, ultima_pergunta
 
@@ -51,22 +68,61 @@ def enviar(event=None):
     entrada.delete(0, END)
     escrever("Você: " + texto)
 
-    if not entrada_sugestao and contem_palavra_proibida(texto):
-        escrever(nome_maquina + ": Desculpe, não posso responder esse tipo de mensagem.")
+    # 1) Comandos de linguagem (livre / educada)
+    try:
+        from core import politica_linguagem
+        msg_cmd = politica_linguagem.processar_comando_linguagem(texto)
+    except ImportError:
+        msg_cmd = None
+    if msg_cmd:
+        escrever(nome_maquina + ": " + msg_cmd)
         return
 
+    # 1b) Comandos de menu (api on/off, status…)   ← AQUI
+    try:
+        from core import menu
+        msg_menu = menu.processar_comando_menu(texto)
+    except ImportError:
+        msg_menu = None
+    if msg_menu:
+        escrever(nome_maquina + ": " + msg_menu)
+        return
+
+    # 2) Modo ensino (ela perguntou a resposta)
     if entrada_sugestao:
+        if _usuario_disse_nao_sei(texto):
+            escrever(nome_maquina + ": Tudo bem, não vou gravar. Seguimos.")
+            entrada_sugestao = False
+            return
+
         pc.salva_sugestao(ultima_pergunta, texto)
         escrever(nome_maquina + ": Obrigado! Aprendi uma nova resposta.")
         entrada_sugestao = False
         return
 
+    # 3) Lista de evitar (só bloqueia se o filtro estiver ativo)
+    if contem_palavra_proibida(texto):
+        try:
+            from core import politica_linguagem
+            bloquear = politica_linguagem.deve_bloquear_palavra_proibida()
+        except ImportError:
+            bloquear = True
+        if bloquear:
+            escrever(
+                nome_maquina
+                + ": Prefiro evitar esse tipo de linguagem. "
+                'Se quiser, diga "linguagem livre" ou "seja honesto".'
+            )
+            return
+
+    # 4) Despedida
     pergunta = pc.normalizar(texto)
     if pergunta in ["tchau", "adeus", "até logo", "ate logo"]:
         pc.limpar_contexto()
         escrever(nome_maquina + ": Volte sempre!")
         return
 
+    # 5) Busca resposta
     resposta = pc.buscaResposta_GUI(texto)
 
     if resposta is None:

@@ -1,5 +1,5 @@
 # ============================================================
-#  Cascata de IA — v01: só Gemini (P1 expandirá Groq/OpenRouter)
+#  Cascata de IA — Gemini → Groq (P1.5)
 # ============================================================
 import json
 import os
@@ -9,16 +9,28 @@ import urllib.parse
 
 from core import config
 
+# --- Gemini ---
 MODELOS = [
-    "gemini-flash-latest",
-    "gemini-2.0-flash-lite",
-    "gemini-2.0-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.6-flash",
+    "gemini-3.7-flash",
 ]
+
+# --- Groq ---
+ARQUIVO_CHAVE_GROQ = os.path.join(
+    os.path.dirname(config.ARQUIVO_CHAVE), "api_key_groq.txt"
+)
+MODELOS_GROQ = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+]
+
 MAX_TOKENS = 1024
 FALLBACK_ATIVO = True
 
 
 def carregar_chave():
+    """Chave Gemini."""
     for var in ("GEMINI_API_KEY", "GOOGLE_API_KEY"):
         chave = os.environ.get(var, "").strip()
         if chave:
@@ -32,8 +44,25 @@ def carregar_chave():
     return None
 
 
+def carregar_chave_groq():
+    """Chave Groq."""
+    for var in ("GROQ_API_KEY",):
+        chave = os.environ.get(var, "").strip()
+        if chave:
+            return chave
+    if os.path.exists(ARQUIVO_CHAVE_GROQ):
+        with open(ARQUIVO_CHAVE_GROQ, "r", encoding="utf-8") as f:
+            for linha in f:
+                linha = linha.strip()
+                if linha and not linha.startswith("#"):
+                    return linha
+    return None
+
+
 def fallback_disponivel():
-    return FALLBACK_ATIVO and config.API_RESPOSTAS and carregar_chave() is not None
+    if not FALLBACK_ATIVO or not config.API_RESPOSTAS:
+        return False
+    return carregar_chave() is not None or carregar_chave_groq() is not None
 
 
 def _montar_prompt(pergunta, historico=None):
@@ -74,7 +103,8 @@ def _chamar_modelo(modelo, chave, prompt):
     )
     dados = json.dumps(corpo).encode("utf-8")
     req = urllib.request.Request(
-        url, data=dados,
+        url,
+        data=dados,
         headers={"Content-Type": "application/json"},
         method="POST",
     )
@@ -91,19 +121,19 @@ def _extrair_texto(resultado):
     if razao and str(razao).upper() in ("MAX_TOKENS", "LENGTH"):
         print("[API] Aviso: resposta pode ter sido cortada (MAX_TOKENS).")
     partes = cand.get("content", {}).get("parts") or []
-    textos = [p.get("text", "") for p in partes if isinstance(p, dict) and p.get("text")]
+    textos = [
+        p.get("text", "")
+        for p in partes
+        if isinstance(p, dict) and p.get("text")
+    ]
     texto = "\n".join(textos).strip()
     return texto if texto else None
 
 
-def consultar_ia(pergunta, historico=None):
-    """Nome legado usado pelo fluxo v01."""
-    if not FALLBACK_ATIVO or not config.API_RESPOSTAS:
-        print("[API] Desativada (FALLBACK_ATIVO ou API_RESPOSTAS=False)")
-        return None
+def _consultar_gemini(pergunta, historico=None):
     chave = carregar_chave()
     if not chave:
-        print("[API] Sem chave. Crie api_key.txt ou defina GEMINI_API_KEY.")
+        print("[API Gemini] Sem chave (api_key.txt).")
         return None
 
     prompt = _montar_prompt(pergunta, historico)
@@ -112,18 +142,85 @@ def consultar_ia(pergunta, historico=None):
             resultado = _chamar_modelo(modelo, chave, prompt)
             texto = _extrair_texto(resultado)
             if texto:
-                print(f"[API] OK via {modelo}")
+                print(f"[API Gemini] OK via {modelo}")
                 return texto
-            print(f"[API] {modelo}: resposta vazia")
+            print(f"[API Gemini] {modelo}: resposta vazia")
         except urllib.error.HTTPError as e:
             if e.code == 429:
-                print(f"[API] {modelo}: cota esgotada (429). Tentando próximo...")
+                print(f"[API Gemini] {modelo}: cota (429). Próximo...")
             elif e.code == 404:
-                print(f"[API] {modelo}: não encontrado (404). Tentando próximo...")
+                print(f"[API Gemini] {modelo}: não encontrado (404). Próximo...")
             else:
-                print(f"[API] {modelo} falhou: HTTP {e.code}")
+                print(f"[API Gemini] {modelo}: HTTP {e.code}")
         except Exception as e:
-            print(f"[API] {modelo} falhou: {type(e).__name__}: {e}")
+            print(f"[API Gemini] {modelo}: {type(e).__name__}: {e}")
+    return None
 
-    print("[API] Nenhum modelo respondeu.")
+
+def _consultar_groq(pergunta, historico=None):
+    chave = carregar_chave_groq()
+    if not chave:
+        print("[API Groq] Sem chave (api_key_groq.txt ou GROQ_API_KEY).")
+        return None
+
+    prompt = _montar_prompt(pergunta, historico)
+    url = "https://api.groq.com/openai/v1/chat/completions"
+
+    for modelo in MODELOS_GROQ:
+        corpo = {
+            "model": modelo,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.4,
+            "max_tokens": MAX_TOKENS,
+        }
+        dados = json.dumps(corpo).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=dados,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {chave}",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=45) as resp:
+                resultado = json.loads(resp.read().decode("utf-8"))
+            choices = resultado.get("choices") or []
+            if not choices:
+                print(f"[API Groq] {modelo}: sem choices")
+                continue
+            texto = (choices[0].get("message") or {}).get("content") or ""
+            texto = texto.strip()
+            if texto:
+                print(f"[API Groq] OK via {modelo}")
+                return texto
+            print(f"[API Groq] {modelo}: texto vazio")
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                print(f"[API Groq] {modelo}: cota (429). Próximo...")
+            else:
+                print(f"[API Groq] {modelo}: HTTP {e.code}")
+        except Exception as e:
+            print(f"[API Groq] {modelo}: {type(e).__name__}: {e}")
+    return None
+
+
+def consultar_ia(pergunta, historico=None):
+    if not FALLBACK_ATIVO or not config.API_RESPOSTAS:
+        print("[API] Desativada (FALLBACK_ATIVO ou API_RESPOSTAS=False)")
+        return None
+
+    # 1) Gemini
+    texto = _consultar_gemini(pergunta, historico)
+    if texto:
+        return texto
+
+    # 2) Groq
+    print("[API] Gemini não respondeu. Tentando Groq...")
+    texto = _consultar_groq(pergunta, historico)
+    if texto:
+        return texto
+
+    print("[API] Nenhum provedor respondeu.")
     return None

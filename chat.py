@@ -17,6 +17,7 @@ from core import interpretacao as interp
 from core import conhecimento as conhe
 from core import cascata_api
 from core import rastreio
+from core import aprender
 
 # Reexporta para InterfaceGrafica / console
 NOME_ASSISTENTE = config.NOME_ASSISTENTE
@@ -98,9 +99,33 @@ def tentar_fallback_ia(texto_original, pergunta_preparada=None):
     if not resposta_ia:
         return None
     chave_aprender = normalizar(pergunta_para_ia)
+    aprendeu = aprender.aprender_da_api(chave_aprender, resposta_ia)
+    if aprendeu:
+        print("[aprender] resposta da API gravada no banco")
+# se False: não grava (padrão atual) — silêncio ou um print opcional:
+# else: print("[aprender] API não gravada (AUTO_APRENDER_IA=False)")
+    interp.atualizar_contexto(texto_original, chave_aprender, resposta_ia)
+    return resposta_ia
+
+def _mostrar_rastreio(r):
+    """Debug no console; não afeta a GUI."""
+    print(rastreio.formatar(r))
+
+
+def tentar_fallback_ia(texto_original, pergunta_preparada=None):
+    if not config.API_RESPOSTAS:
+        return None
+    historico = interp.historico_conversa if interp.historico_conversa else None
+    pergunta_para_ia = pergunta_preparada or texto_original
+    resposta_ia = cascata_api.consultar_ia(pergunta_para_ia, historico)
+    if not resposta_ia:
+        return None
+    chave_aprender = normalizar(pergunta_para_ia)
     if config.AUTO_APRENDER_IA:
         conhe.salva_sugestao(chave_aprender, resposta_ia)
     interp.atualizar_contexto(texto_original, chave_aprender, resposta_ia)
+    r = rastreio.registrar(rastreio.novo("api", chave=chave_aprender))
+    _mostrar_rastreio(r)
     return resposta_ia
 
 
@@ -115,26 +140,36 @@ def buscaResposta(texto):
     resposta = conhe.match_exato(pergunta)
     if resposta is not None:
         interp.atualizar_contexto(texto, pergunta, resposta)
+        r = rastreio.registrar(rastreio.novo("exato", chave=pergunta))
+        _mostrar_rastreio(r)
         return resposta
 
     # 2) Similaridade
     resposta = conhe.busca_por_similaridade(pergunta)
     if resposta is not None:
-        interp.atualizar_contexto(texto, conhe.get_ultima_chave(), resposta)
+        chave = conhe.get_ultima_chave()
+        interp.atualizar_contexto(texto, chave, resposta)
+        r = rastreio.registrar(rastreio.novo("similaridade", chave=chave))
+        _mostrar_rastreio(r)
         return resposta
 
     # 3) API
     resposta = tentar_fallback_ia(texto, pergunta)
     if resposta is not None:
-        return resposta
+        return resposta  # rastreio já feito dentro
 
-    # 4) Ensina
+    # 4) Usuário ensina
     print(f"{config.NOME_ASSISTENTE}: Não sei responder isso.")
     resposta = input("Qual deveria ser a resposta? ")
-    conhe.salva_sugestao(texto, resposta)
+    aprender.aprender_do_usuario(texto, resposta)
     interp.atualizar_contexto(texto, normalizar(texto), resposta)
+    r = rastreio.registrar(rastreio.novo("usuario", chave=normalizar(texto)))
+    _mostrar_rastreio(r)
     return "Obrigado! Aprendi uma nova resposta."
 
+def salva_sugestao(pergunta, resposta):
+    """Compatível com a GUI: ensino do usuário."""
+    return aprender.aprender_do_usuario(pergunta, resposta)
 
 def buscaResposta_GUI(texto):
     pergunta = preparar_pergunta(texto)
@@ -142,15 +177,17 @@ def buscaResposta_GUI(texto):
     resposta = conhe.match_exato(pergunta)
     if resposta is not None:
         interp.atualizar_contexto(texto, pergunta, resposta)
+        rastreio.registrar(rastreio.novo("exato", chave=pergunta))
         return resposta
 
     resposta = conhe.busca_por_similaridade(pergunta)
     if resposta is not None:
-        interp.atualizar_contexto(texto, conhe.get_ultima_chave(), resposta)
+        chave = conhe.get_ultima_chave()
+        interp.atualizar_contexto(texto, chave, resposta)
+        rastreio.registrar(rastreio.novo("similaridade", chave=chave))
         return resposta
 
     return tentar_fallback_ia(texto, pergunta)
-
 
 def exibeResposta(resposta, nome):
     if resposta == "fim":
