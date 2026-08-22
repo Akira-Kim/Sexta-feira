@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ============================================================
-#  Sexta-feira — versão CONSOLE (terminal)
+#  Sexta-feira — versão CONSOLE 
 # ============================================================
 import chat as pc
 
