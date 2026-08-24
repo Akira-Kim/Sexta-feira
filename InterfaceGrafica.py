@@ -10,6 +10,7 @@ main_window.geometry("700x600")
 
 entrada_sugestao = False
 ultima_pergunta = ""
+ultima_chave_base = None
 
 texto_conversa = Text(
     main_window, width=80, height=25, state=DISABLED, wrap=WORD
@@ -59,7 +60,7 @@ def _usuario_disse_nao_sei(texto):
 
 
 def enviar(event=None):
-    global entrada_sugestao, ultima_pergunta
+    global entrada_sugestao, ultima_pergunta, ultima_chave_base
 
     texto = entrada.get().strip()
     if texto == "":
@@ -68,7 +69,7 @@ def enviar(event=None):
     entrada.delete(0, END)
     escrever("Você: " + texto)
 
-    # 1) Comandos de linguagem (livre / educada)
+    # 1) Linguagem livre / educada
     try:
         from core import politica_linguagem
         msg_cmd = politica_linguagem.processar_comando_linguagem(texto)
@@ -78,7 +79,7 @@ def enviar(event=None):
         escrever(nome_maquina + ": " + msg_cmd)
         return
 
-    # 1b) Comandos de menu (api on/off, status…)   ← AQUI
+    # 1b) Menu API
     try:
         from core import menu
         msg_menu = menu.processar_comando_menu(texto)
@@ -88,19 +89,28 @@ def enviar(event=None):
         escrever(nome_maquina + ": " + msg_menu)
         return
 
-    # 2) Modo ensino (ela perguntou a resposta)
+    # 1c) Info fixa
+    try:
+        from manutencao import info_fixa
+        msg_fixa = info_fixa.processar_comando_info_fixa(texto, ultima_chave_base)
+    except ImportError:
+        msg_fixa = None
+    if msg_fixa:
+        escrever(nome_maquina + ": " + msg_fixa)
+        return
+
+    # 2) Modo ensino
     if entrada_sugestao:
         if _usuario_disse_nao_sei(texto):
             escrever(nome_maquina + ": Tudo bem, não vou gravar. Seguimos.")
             entrada_sugestao = False
             return
-
         pc.salva_sugestao(ultima_pergunta, texto)
         escrever(nome_maquina + ": Obrigado! Aprendi uma nova resposta.")
         entrada_sugestao = False
         return
 
-    # 3) Lista de evitar (só bloqueia se o filtro estiver ativo)
+    # 3) Lista de evitar
     if contem_palavra_proibida(texto):
         try:
             from core import politica_linguagem
@@ -132,6 +142,7 @@ def enviar(event=None):
         entrada_sugestao = True
     else:
         escrever(nome_maquina + ": " + resposta)
+        ultima_chave_base = pc.preparar_pergunta(texto)
 
 
 Button(frame, text="Enviar", command=enviar).grid(row=0, column=1)
