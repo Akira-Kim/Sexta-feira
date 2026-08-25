@@ -118,9 +118,30 @@ def tentar_expandir_contexto(pergunta_norm):
     if len(pergunta_norm.split()) >= 4 and not pergunta_norm.startswith("e "):
         return pergunta_norm
 
-    m = re.match(r"^e (?:o|a) (?:presidente )?(?:dos|do|da|de) (.+)$", pergunta_norm)
+        # "e o presidente dos eua" / "e o presidente do brasil"
+    m = re.match(
+        r"^e (?:o|a) presidente (?:dos|do|da|de) (.+)$",
+        pergunta_norm,
+    )
     if m and m.group(1).strip():
         return f"quem e o presidente de {m.group(1).strip()}"
+
+    # "e o dos eua" / "e o do brasil" (sem a palavra presidente, mas com dos/do/da)
+    m = re.match(r"^e (?:o|a) (?:dos|do|da) (.+)$", pergunta_norm)
+    if m and m.group(1).strip():
+        return f"quem e o presidente de {m.group(1).strip()}"
+
+    # "e o de c" / "e a de java" → o que e ...
+    m = re.match(r"^e (?:o|a) de (.+)$", pergunta_norm)
+    if m and m.group(1).strip():
+        return f"o que e {m.group(1).strip()}"
+
+    # "e o c" / "e a java"
+    m = re.match(r"^e (?:o|a) (.+)$", pergunta_norm)
+    if m and m.group(1).strip():
+        resto = m.group(1).strip()
+        # evita engolir "e o dos eua" de novo (já tratado)
+        return f"o que e {resto}"
 
     m = re.match(r"^e (?:o|a) (?:de )?(.+)$", pergunta_norm)
     if m and m.group(1).strip():
